@@ -3,10 +3,49 @@ import argparse
 from pathlib import Path
 
 
-def read_csv(file_path: Path) -> list[dict[str, str]]:
+def read_csv(
+    file_path: Path,
+    required_columns: list[str] | None = None,
+) -> list[dict[str, str]]:
     with file_path.open(newline="", encoding="utf-8-sig") as file:
         reader = csv.DictReader(file)
-        return list(reader)
+        headers = reader.fieldnames
+
+        if not headers:
+            raise ValueError(f"{file_path}: missing header row")
+
+        if len(headers) != len(set(headers)):
+            raise ValueError(f"{file_path}: duplicate column names")
+
+        if required_columns is not None:
+            missing_columns = [
+                column
+                for column in required_columns
+                if column not in headers
+            ]
+
+            if missing_columns:
+                missing_names = ", ".join(missing_columns)
+                raise ValueError(
+                    f"{file_path}: missing required columns: {missing_names}"
+                )
+
+        rows = []
+
+        for row_number, row in enumerate(reader, start=1):
+            if None in row:
+                raise ValueError(
+                    f"{file_path}: data row {row_number} has extra fields"
+                )
+
+            if any(value is None for value in row.values()):
+                raise ValueError(
+                    f"{file_path}: data row {row_number} has missing fields"
+                )
+
+            rows.append(row)
+
+        return rows
 
 
 def compare_rows(
@@ -155,16 +194,22 @@ if __name__ == "__main__":
     if output_path in (source_path, target_path):
         parser.error("Output path must differ from both input paths.")
 
-    source_rows = read_csv(args.source)
-    target_rows = read_csv(args.target)
+    required_columns = [args.key] + args.columns
 
-    results = reconcile(
-        source_rows,
-        target_rows,
-        key_column=args.key,
-        comparison_columns=args.columns,
-    )
+    try:
+        source_rows = read_csv(args.source, required_columns)
+        target_rows = read_csv(args.target, required_columns)
 
-    write_report(results, args.output)
+        results = reconcile(
+            source_rows,
+            target_rows,
+            key_column=args.key,
+            comparison_columns=args.columns,
+        )
+
+        write_report(results, args.output)
+
+    except (ValueError, OSError, csv.Error) as error:
+        parser.exit(status=1, message=f"Error: {error}\n")
 
     print(f"Report saved to: {args.output}")
