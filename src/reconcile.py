@@ -1,4 +1,5 @@
 import csv
+import argparse
 from pathlib import Path
 
 
@@ -30,8 +31,18 @@ def index_rows(
 ) -> dict[str, dict[str, str]]:
     indexed_rows = {}
 
-    for row in rows:
+    for row_number, row in enumerate(rows, start=1):
+        if key_column not in row:
+            raise ValueError(
+                f"Data row {row_number}: missing key column '{key_column}'"
+            )
+
         key = row[key_column]
+
+        if key is None or not key.strip():
+            raise ValueError(
+                f"Data row {row_number}: blank key in '{key_column}'"
+            )
 
         if key in indexed_rows:
             raise ValueError(f"Duplicate key found: {key}")
@@ -41,46 +52,119 @@ def index_rows(
     return indexed_rows
 
 
-if __name__ == "__main__":
-    project_root = Path(__file__).resolve().parent.parent
+def reconcile(
+    source_rows: list[dict[str, str]],
+    target_rows: list[dict[str, str]],
+    key_column: str,
+    comparison_columns: list[str],
+) -> list[dict[str, str]]:
+    source_index = index_rows(source_rows, key_column)
+    target_index = index_rows(target_rows, key_column)
 
-    source_path = project_root / "data" / "source.csv"
-    target_path = project_root / "data" / "target.csv"
+    all_ids = set(source_index) | set(target_index)
+    results = []
 
-    source_rows = read_csv(source_path)
-    target_rows = read_csv(target_path)
-
-    source_index = index_rows(source_rows, "invoice_id")
-    target_index = index_rows(target_rows, "invoice_id")
-
-    source_ids = set(source_index)
-    target_ids = set(target_index)
-
-    shared_ids = source_ids & target_ids
-    source_only_ids = source_ids - target_ids
-    target_only_ids = target_ids - source_ids
-
-    print("IDs in both files:", sorted(shared_ids))
-    print("IDs only in source:", sorted(source_only_ids))
-    print("IDs only in target:", sorted(target_only_ids))
-
-    comparison_columns = ["customer", "amount"]
-
-    for invoice_id in sorted(shared_ids):
-        source_row = source_index[invoice_id]
-        target_row = target_index[invoice_id]
-
-        differences = compare_rows(
-            source_row,
-            target_row,
-            comparison_columns,
-        )
-
-        if differences:
-            print(f"\nChanged: {invoice_id}")
-
-            for column, values in differences.items():
-                source_value, target_value = values
-                print(f"  {column}: {source_value} -> {target_value}")
+    for record_id in sorted(all_ids):
+        if record_id not in target_index:
+            results.append({
+                "record_id": record_id,
+                "status": "source_only",
+                "column": "",
+                "source_value": "",
+                "target_value": "",
+            })
+        elif record_id not in source_index:
+            results.append({
+                "record_id": record_id,
+                "status": "target_only",
+                "column": "",
+                "source_value": "",
+                "target_value": "",
+            })
         else:
-            print(f"\nMatched: {invoice_id}")
+            differences = compare_rows(
+                source_index[record_id],
+                target_index[record_id],
+                comparison_columns,
+            )
+
+            if differences:
+                for column, values in differences.items():
+                    source_value, target_value = values
+
+                    results.append({
+                        "record_id": record_id,
+                        "status": "changed",
+                        "column": column,
+                        "source_value": source_value,
+                        "target_value": target_value,
+                    })
+            else:
+                results.append({
+                    "record_id": record_id,
+                    "status": "matched",
+                    "column": "",
+                    "source_value": "",
+                    "target_value": "",
+                })
+
+    return results
+
+
+def write_report(
+    results: list[dict[str, str]],
+    output_path: Path,
+) -> None:
+    fieldnames = [
+        "record_id",
+        "status",
+        "column",
+        "source_value",
+        "target_value",
+    ]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Compare two CSV files and export a reconciliation report."
+    )
+
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--key", required=True)
+    parser.add_argument("--columns", nargs="+", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+
+    args = parser.parse_args()
+
+    source_path = args.source.resolve()
+    target_path = args.target.resolve()
+    output_path = args.output.resolve()
+
+    if output_path in (source_path, target_path):
+        parser.error("Output path must differ from both input paths.")
+
+    source_rows = read_csv(args.source)
+    target_rows = read_csv(args.target)
+
+    results = reconcile(
+        source_rows,
+        target_rows,
+        key_column=args.key,
+        comparison_columns=args.columns,
+    )
+
+    write_report(results, args.output)
+
+    print(f"Report saved to: {args.output}")
