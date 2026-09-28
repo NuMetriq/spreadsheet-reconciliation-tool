@@ -1,0 +1,4 @@
+invoice_id,customer,amount
+INV-001,Acme Supply,150.00
+INV-002,Prairie Goods,275.50
+INV-003,River City Books,89.99
