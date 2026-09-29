@@ -21,6 +21,7 @@ Supports CSV-to-CSV, XLSX-to-XLSX, and mixed CSV-to-XLSX comparisons. Reports ar
 
 - Python 3.11 or newer
 - openpyxl 3.1.5, installed using requirements.txt
+- Streamlit 1.64.0, installed using requirements.txt
 
 ## Setup
 
@@ -45,6 +46,32 @@ python -m pip install -r requirements.txt
 ```
 
 Run the following commands from the repository's top folder.
+
+## Browser interface
+
+Start the local Streamlit app:
+
+```powershell
+python -m streamlit run app.py --server.address localhost
+```
+
+Open the Local URL printed in the terminal.
+
+1. Upload a source file and a target file (`.csv` or `.xlsx`).
+2. Review the previews.
+3. Select the record ID column and columns to compare.
+4. Optionally select numeric columns and enter a tolerance.
+5. Click **Reconcile**.
+6. Review the summary and download the CSV report.
+
+Changing files or settings clears the displayed results until you click
+**Reconcile** again.
+
+The interface currently requires at least one data record in each file
+and reads the first worksheet of XLSX files. The CLI also supports
+header-only files and worksheet selection.
+
+Stop the app with **Ctrl+C** in its terminal.
 
 ## Example usage
 
@@ -146,7 +173,7 @@ Tests cover CSV validation, record indexing, field comparison, decimal parsing, 
 
 ## Planned improvements
 
-- A simple user interface
+- Worksheet selection and header-only file support in the browser interface
 
 ## License
 
