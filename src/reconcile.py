@@ -1,6 +1,7 @@
 import csv
 import argparse
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 
 
 def read_csv(
@@ -48,18 +49,40 @@ def read_csv(
         return rows
 
 
+def parse_decimal(value: str) -> Decimal:
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        raise ValueError(f"Invalid numeric value: {value!r}") from None
+
+    if not number.is_finite():
+        raise ValueError(f"Numeric value must be finite: {value!r}")
+
+    return number
+
+
 def compare_rows(
     source_row: dict[str, str],
     target_row: dict[str, str],
     columns: list[str],
+    numeric_columns: list[str] | None = None,
 ) -> dict[str, tuple[str, str]]:
+    numeric_column_set = set(numeric_columns or [])
     differences = {}
 
     for column in columns:
         source_value = source_row[column]
         target_value = target_row[column]
 
-        if source_value != target_value:
+        if column in numeric_column_set:
+            values_match = (
+                parse_decimal(source_value)
+                == parse_decimal(target_value)
+            )
+        else:
+            values_match = source_value == target_value
+
+        if not values_match:
             differences[column] = (source_value, target_value)
 
     return differences
@@ -96,7 +119,19 @@ def reconcile(
     target_rows: list[dict[str, str]],
     key_column: str,
     comparison_columns: list[str],
+    numeric_columns: list[str] | None = None,
 ) -> list[dict[str, str]]:
+
+    numeric_columns = numeric_columns or []
+
+    unknown_columns = set(numeric_columns) - set(comparison_columns)
+
+    if unknown_columns:
+        names = ", ".join(sorted(unknown_columns))
+        raise ValueError(
+            f"Numeric columns must also be comparison columns: {names}"
+        )
+    
     source_index = index_rows(source_rows, key_column)
     target_index = index_rows(target_rows, key_column)
 
@@ -125,6 +160,7 @@ def reconcile(
                 source_index[record_id],
                 target_index[record_id],
                 comparison_columns,
+                numeric_columns=numeric_columns,
             )
 
             if differences:
@@ -184,6 +220,12 @@ if __name__ == "__main__":
     parser.add_argument("--key", required=True)
     parser.add_argument("--columns", nargs="+", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--numeric-columns",
+        nargs="+",
+        default=[],
+        help="Columns to compare as decimal numbers; must also appear in --columns.",
+    )
 
     args = parser.parse_args()
 
@@ -205,6 +247,7 @@ if __name__ == "__main__":
             target_rows,
             key_column=args.key,
             comparison_columns=args.columns,
+            numeric_columns=args.numeric_columns,
         )
 
         write_report(results, args.output)

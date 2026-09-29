@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.reconcile import compare_rows, index_rows, read_csv, reconcile
+from src.reconcile import (
+    compare_rows,
+    index_rows,
+    parse_decimal,
+    read_csv,
+    reconcile,
+)
 
 
 class TestCompareRows(unittest.TestCase):
@@ -30,6 +36,45 @@ class TestCompareRows(unittest.TestCase):
 
         self.assertEqual(result, {})
 
+    def test_numeric_comparison_ignores_decimal_format(self):
+        source = {"amount": "150.00"}
+        target = {"amount": "150.0"}
+
+        result = compare_rows(
+            source,
+            target,
+            ["amount"],
+            numeric_columns=["amount"],
+        )
+
+        self.assertEqual(result, {})
+
+    def test_text_comparison_preserves_format_differences(self):
+        source = {"amount": "150.00"}
+        target = {"amount": "150.0"}
+
+        result = compare_rows(source, target, ["amount"])
+
+        self.assertEqual(
+            result,
+            {"amount": ("150.00", "150.0")},
+        )
+
+    def test_numeric_difference_preserves_original_text(self):
+        source = {"amount": "150.00"}
+        target = {"amount": "175.0"}
+
+        result = compare_rows(
+            source,
+            target,
+            ["amount"],
+            numeric_columns=["amount"],
+        )
+
+        self.assertEqual(
+            result,
+            {"amount": ("150.00", "175.0")},
+        )
 
 class TestReconcile(unittest.TestCase):
     def test_matches_by_id_when_rows_are_reordered(self):
@@ -83,6 +128,44 @@ class TestReconcile(unittest.TestCase):
                 "target_value": "",
             },
         ])
+
+    def test_numeric_comparison_matches_equivalent_amounts(self):
+        source = [{"id": "A", "amount": "150.00"}]
+        target = [{"id": "A", "amount": "150.0"}]
+
+        result = reconcile(
+            source,
+            target,
+            key_column="id",
+            comparison_columns=["amount"],
+            numeric_columns=["amount"],
+        )
+
+        self.assertEqual(result, [
+            {
+                "record_id": "A",
+                "status": "matched",
+                "column": "",
+                "source_value": "",
+                "target_value": "",
+            },
+        ])
+
+    def test_rejects_numeric_column_outside_comparison_columns(self):
+        source = [{"id": "A", "customer": "Acme", "amount": "150.00"}]
+        target = [{"id": "A", "customer": "Acme", "amount": "150.00"}]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Numeric columns must also be comparison columns: amount",
+        ):
+            reconcile(
+                source,
+                target,
+                key_column="id",
+                comparison_columns=["customer"],
+                numeric_columns=["amount"],
+            )
 
 
 class TestIndexRows(unittest.TestCase):
@@ -167,3 +250,33 @@ class TestReadCsv(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "data row 1 has missing fields"):
             read_csv(self.csv_path)
+
+
+class TestParseDecimal(unittest.TestCase):
+    def test_equivalent_decimal_formats_are_equal(self):
+        self.assertEqual(
+            parse_decimal("150.00"),
+            parse_decimal("150.0"),
+        )
+
+    def test_distinguishes_large_values_one_cent_apart(self):
+        self.assertNotEqual(
+            parse_decimal("1000000000000000.01"),
+            parse_decimal("1000000000000000.02"),
+        )
+
+    def test_rejects_invalid_numeric_text(self):
+        for value in ("", "abc", "$150.00", "1,000.00"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError, "Invalid numeric value"
+                ):
+                    parse_decimal(value)
+
+    def test_rejects_nonfinite_values(self):
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError, "must be finite"
+                ):
+                    parse_decimal(value)
