@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 from openpyxl import Workbook
 
@@ -9,6 +10,7 @@ from src.reconcile import (
     compare_rows,
     index_rows,
     parse_decimal,
+    parse_tolerance,
     read_csv,
     read_xlsx,
     read_table,
@@ -81,6 +83,46 @@ class TestCompareRows(unittest.TestCase):
         self.assertEqual(
             result,
             {"amount": ("150.00", "175.0")},
+        )
+
+    def test_numeric_tolerance_includes_boundary_in_both_directions(self):
+        for target_amount in ("100.005", "100.01", "99.99"):
+            with self.subTest(target_amount=target_amount):
+                result = compare_rows(
+                    {"amount": "100.00"},
+                    {"amount": target_amount},
+                    ["amount"],
+                    numeric_columns=["amount"],
+                    numeric_tolerance=Decimal("0.01"),
+                )
+
+                self.assertEqual(result, {})
+
+    def test_numeric_difference_outside_tolerance_is_reported(self):
+        result = compare_rows(
+            {"amount": "100.00"},
+            {"amount": "100.011"},
+            ["amount"],
+            numeric_columns=["amount"],
+            numeric_tolerance=Decimal("0.01"),
+        )
+
+        self.assertEqual(
+            result,
+            {"amount": ("100.00", "100.011")},
+        )
+
+    def test_numeric_comparison_is_exact_by_default(self):
+        result = compare_rows(
+            {"amount": "100.00"},
+            {"amount": "100.001"},
+            ["amount"],
+            numeric_columns=["amount"],
+        )
+
+        self.assertEqual(
+            result,
+            {"amount": ("100.00", "100.001")},
         )
 
 class TestReconcile(unittest.TestCase):
@@ -173,6 +215,56 @@ class TestReconcile(unittest.TestCase):
                 comparison_columns=["customer"],
                 numeric_columns=["amount"],
             )
+
+
+    def test_applies_numeric_tolerance(self):
+        result = reconcile(
+            [{"id": "A", "amount": "100.00"}],
+            [{"id": "A", "amount": "100.01"}],
+            key_column="id",
+            comparison_columns=["amount"],
+            numeric_columns=["amount"],
+            numeric_tolerance=Decimal("0.01"),
+        )
+
+        self.assertEqual(result, [
+            {
+                "record_id": "A",
+                "status": "matched",
+                "column": "",
+                "source_value": "",
+                "target_value": "",
+            },
+        ])
+
+    def test_rejects_positive_tolerance_without_numeric_columns(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "A positive numeric tolerance requires numeric columns",
+        ):
+            reconcile(
+                [],
+                [],
+                key_column="id",
+                comparison_columns=["amount"],
+                numeric_tolerance=Decimal("0.01"),
+            )
+
+    def test_rejects_invalid_tolerance_even_with_empty_inputs(self):
+        for value in ("-0.01", "NaN", "Infinity"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Numeric tolerance must be finite and nonnegative",
+                ):
+                    reconcile(
+                        [],
+                        [],
+                        key_column="id",
+                        comparison_columns=["amount"],
+                        numeric_columns=["amount"],
+                        numeric_tolerance=Decimal(value),
+                    )
 
 
 class TestIndexRows(unittest.TestCase):
@@ -660,3 +752,25 @@ class TestCommandLine(unittest.TestCase):
                     "target_value": "25",
                 },
             ])
+
+
+class TestParseTolerance(unittest.TestCase):
+    def test_accepts_zero_and_positive_tolerances(self):
+        for value in ("0", "0.01", "1.50"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    parse_tolerance(value),
+                    Decimal(value),
+                )
+
+    def test_rejects_negative_tolerance(self):
+        with self.assertRaisesRegex(
+            ValueError, "Numeric tolerance must be nonnegative"
+        ):
+            parse_tolerance("-0.01")
+
+    def test_rejects_invalid_or_nonfinite_tolerance(self):
+        for value in ("", "abc", "NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    parse_tolerance(value)

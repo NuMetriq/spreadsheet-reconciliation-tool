@@ -67,6 +67,12 @@ Target-only records: 1
 
 The report is written to `reports/reconciliation.csv`.
 
+To allow differences of up to `0.01` in numeric amounts:
+
+```powershell
+python src/reconcile.py --source data/source.csv --target data/target.csv --key invoice_id --columns customer amount --numeric-columns amount --numeric-tolerance 0.01 --output reports/reconciliation.csv
+```
+
 For usage instructions:
 
 ```powershell
@@ -85,6 +91,7 @@ python src/reconcile.py --help
 | `--output` | Report destination; required |
 | `--source-sheet` | Source XLSX worksheet name; defaults to the first worksheet |
 | `--target-sheet` | Target XLSX worksheet name; defaults to the first worksheet |
+| `--numeric-tolerance` | Maximum absolute difference allowed for numeric columns; defaults to `0` |
 
 Numeric columns must also appear in `--columns`. Omit `--numeric-columns` to compare all selected fields as text.
 
@@ -110,7 +117,10 @@ The terminal summary counts unique records per status, so a record with several 
 - IDs must be nonblank and unique within each file.
 - IDs and text fields are case-sensitive; surrounding whitespace is preserved.
 - Numeric comparison treats `150.00` and `150.0` as equal.
-- Numeric comparison uses exact equality, with no tolerance or rounding.
+- Numeric comparison is exact by default.
+- `--numeric-tolerance` allows an absolute difference up to and including the specified amount. The same tolerance applies to every selected numeric column.
+- Tolerance must be finite and nonnegative. A positive tolerance requires `--numeric-columns`.
+- A `matched` status means the selected fields agree under the configured comparison rules, including tolerance.
 - Blank values, currency symbols, thousands separators, and nonfinite values are rejected when parsed as numbers.
 - Numeric values are currently parsed only for records whose IDs appear in both files.
 - CSV files must use UTF-8 encoding; a UTF-8 byte-order marker is supported.
@@ -136,7 +146,6 @@ Tests cover CSV validation, record indexing, field comparison, decimal parsing, 
 
 ## Planned improvements
 
-- Configurable numeric tolerances
 - A simple user interface
 
 ## License

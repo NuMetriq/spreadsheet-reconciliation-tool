@@ -1,5 +1,6 @@
 import csv
 import argparse
+from fractions import Fraction
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from openpyxl import load_workbook
@@ -178,13 +179,27 @@ def parse_decimal(value: str) -> Decimal:
     return number
 
 
+def parse_tolerance(value: str) -> Decimal:
+    tolerance = parse_decimal(value)
+
+    if tolerance < 0:
+        raise ValueError("Numeric tolerance must be nonnegative")
+
+    return tolerance
+
+
 def compare_rows(
     source_row: dict[str, str],
     target_row: dict[str, str],
     columns: list[str],
     numeric_columns: list[str] | None = None,
+    numeric_tolerance: Decimal = Decimal("0"),
 ) -> dict[str, tuple[str, str]]:
+    if not numeric_tolerance.is_finite() or numeric_tolerance < 0:
+        raise ValueError("Numeric tolerance must be finite and nonnegative")
+
     numeric_column_set = set(numeric_columns or [])
+    tolerance = Fraction(numeric_tolerance)
     differences = {}
 
     for column in columns:
@@ -192,10 +207,10 @@ def compare_rows(
         target_value = target_row[column]
 
         if column in numeric_column_set:
-            values_match = (
-                parse_decimal(source_value)
-                == parse_decimal(target_value)
-            )
+            source_number = Fraction(parse_decimal(source_value))
+            target_number = Fraction(parse_decimal(target_value))
+
+            values_match = abs(source_number - target_number) <= tolerance
         else:
             values_match = source_value == target_value
 
@@ -237,9 +252,20 @@ def reconcile(
     key_column: str,
     comparison_columns: list[str],
     numeric_columns: list[str] | None = None,
+    numeric_tolerance: Decimal = Decimal("0"),
 ) -> list[dict[str, str]]:
 
     numeric_columns = numeric_columns or []
+
+    if not numeric_tolerance.is_finite() or numeric_tolerance < 0:
+        raise ValueError(
+            "Numeric tolerance must be finite and nonnegative"
+        )
+
+    if numeric_tolerance > 0 and not numeric_columns:
+        raise ValueError(
+            "A positive numeric tolerance requires numeric columns"
+        )
 
     unknown_columns = set(numeric_columns) - set(comparison_columns)
 
@@ -278,6 +304,7 @@ def reconcile(
                 target_index[record_id],
                 comparison_columns,
                 numeric_columns=numeric_columns,
+                numeric_tolerance=numeric_tolerance,
             )
 
             if differences:
@@ -374,6 +401,11 @@ if __name__ == "__main__":
         "--target-sheet",
         help="Target XLSX worksheet name; defaults to the first worksheet.",
     )
+    parser.add_argument(
+        "--numeric-tolerance",
+        default="0",
+        help="Maximum absolute difference for numeric columns; default: 0.",
+    )
 
     args = parser.parse_args()
 
@@ -387,6 +419,7 @@ if __name__ == "__main__":
     required_columns = [args.key] + args.columns
 
     try:
+        numeric_tolerance = parse_tolerance(args.numeric_tolerance)
         source_rows = read_table(
             args.source,
             required_columns,
@@ -404,6 +437,7 @@ if __name__ == "__main__":
             key_column=args.key,
             comparison_columns=args.columns,
             numeric_columns=args.numeric_columns,
+            numeric_tolerance=numeric_tolerance,
         )
 
         write_report(results, args.output)
