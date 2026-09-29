@@ -83,6 +83,8 @@ python src/reconcile.py --help
 | `--columns` | One or more columns to compare; required |
 | `--numeric-columns` | Optional columns to compare as decimal numbers |
 | `--output` | Report destination; required |
+| `--source-sheet` | Source XLSX worksheet name; defaults to the first worksheet |
+| `--target-sheet` | Target XLSX worksheet name; defaults to the first worksheet |
 
 Numeric columns must also appear in `--columns`. Omit `--numeric-columns` to compare all selected fields as text.
 
@@ -115,7 +117,10 @@ The terminal summary counts unique records per status, so a record with several 
 - Both input files are loaded into memory.
 - An existing report at the output path is replaced on a successful run.
 - A rejected run may leave a report from an earlier run in place.
-- XLSX input reads the first worksheet and requires nonblank, unique text headers in row 1.
+- XLSX input reads the first worksheet by default. Use `--source-sheet` and `--target-sheet` to select worksheets by name.
+- Worksheet names are case-sensitive. Quote names containing spaces, such as `--source-sheet "January Invoices"`.
+- Worksheet selection is only available for XLSX inputs.
+- XLSX files require nonblank, unique text headers in row 1 of the selected worksheet.
 - Completely blank Excel rows are skipped; blank cells become empty strings.
 - Formula cells and Excel error cells are rejected.
 - Excel values are read without their display formatting. Store IDs as text when leading zeros matter.
@@ -131,7 +136,6 @@ Tests cover CSV validation, record indexing, field comparison, decimal parsing, 
 
 ## Planned improvements
 
-- Selectable Excel worksheets
 - Configurable numeric tolerances
 - A simple user interface
 

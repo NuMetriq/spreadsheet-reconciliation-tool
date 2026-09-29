@@ -447,6 +447,43 @@ class TestReadXlsx(unittest.TestCase):
             {"id": "B", "amount": "20"},
         ])
 
+    def test_reads_selected_worksheet(self):
+        workbook = Workbook()
+
+        first_sheet = workbook.active
+        first_sheet.title = "Overview"
+        first_sheet.append(["note"])
+        first_sheet.append(["Not the invoice table"])
+
+        invoice_sheet = workbook.create_sheet("Invoices")
+        invoice_sheet.append(["id", "amount"])
+        invoice_sheet.append(["A", 150])
+
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        result = read_xlsx(
+            self.xlsx_path,
+            required_columns=["id", "amount"],
+            sheet_name="Invoices",
+        )
+
+        self.assertEqual(result, [
+            {"id": "A", "amount": "150"},
+        ])
+
+    def test_rejects_unknown_worksheet(self):
+        workbook = Workbook()
+        workbook.active.title = "Invoices"
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "worksheet 'Missing' not found. Available worksheets: Invoices",
+        ):
+            read_xlsx(self.xlsx_path, sheet_name="Missing")
+
 
 class TestReadTable(unittest.TestCase):
     def setUp(self):
@@ -506,3 +543,45 @@ class TestReadTable(unittest.TestCase):
             ValueError, "unsupported file extension"
         ):
             read_table(file_path)
+
+    def test_passes_worksheet_selection_to_excel_reader(self):
+        file_path = self.folder / "input.xlsx"
+
+        workbook = Workbook()
+        first_sheet = workbook.active
+        first_sheet.title = "Overview"
+        first_sheet.append(["note"])
+
+        selected_sheet = workbook.create_sheet("Invoices")
+        selected_sheet.append(["id", "amount"])
+        selected_sheet.append(["A", 150])
+
+        workbook.save(file_path)
+        workbook.close()
+
+        result = read_table(
+            file_path,
+            required_columns=["id", "amount"],
+            sheet_name="Invoices",
+        )
+
+        self.assertEqual(result, [
+            {"id": "A", "amount": "150"},
+        ])
+
+    def test_rejects_worksheet_selection_for_csv(self):
+        file_path = self.folder / "input.csv"
+        file_path.write_text(
+            "id,amount\nA,150.00\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "worksheet selection requires an XLSX file",
+        ):
+            read_table(
+                file_path,
+                required_columns=["id", "amount"],
+                sheet_name="Invoices",
+            )

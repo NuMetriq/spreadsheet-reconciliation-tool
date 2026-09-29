@@ -52,6 +52,7 @@ def read_csv(
 def read_xlsx(
     file_path: Path,
     required_columns: list[str] | None = None,
+    sheet_name: str | None = None,
 ) -> list[dict[str, str]]:
     workbook = load_workbook(
         file_path,
@@ -60,7 +61,16 @@ def read_xlsx(
     )
 
     try:
-        sheet = workbook.worksheets[0]
+        if sheet_name is None:
+            sheet = workbook.worksheets[0]
+        elif sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+        else:
+            available_names = ", ".join(workbook.sheetnames)
+            raise ValueError(
+                f"{file_path}: worksheet '{sheet_name}' not found. "
+                f"Available worksheets: {available_names}"
+            )
         worksheet_rows = sheet.iter_rows()
         header_cells = next(worksheet_rows, ())
         headers = [cell.value for cell in header_cells]
@@ -131,14 +141,24 @@ def read_xlsx(
 def read_table(
     file_path: Path,
     required_columns: list[str] | None = None,
+    sheet_name: str | None = None,
 ) -> list[dict[str, str]]:
     extension = file_path.suffix.lower()
 
     if extension == ".csv":
+        if sheet_name is not None:
+            raise ValueError(
+                f"{file_path}: worksheet selection requires an XLSX file"
+            )
+
         return read_csv(file_path, required_columns)
 
     if extension == ".xlsx":
-        return read_xlsx(file_path, required_columns)
+        return read_xlsx(
+            file_path,
+            required_columns,
+            sheet_name=sheet_name,
+        )
 
     raise ValueError(
         f"{file_path}: unsupported file extension '{extension}'. "
@@ -346,6 +366,14 @@ if __name__ == "__main__":
         default=[],
         help="Columns to compare as decimal numbers; must also appear in --columns.",
     )
+    parser.add_argument(
+        "--source-sheet",
+        help="Source XLSX worksheet name; defaults to the first worksheet.",
+    )
+    parser.add_argument(
+        "--target-sheet",
+        help="Target XLSX worksheet name; defaults to the first worksheet.",
+    )
 
     args = parser.parse_args()
 
@@ -359,8 +387,16 @@ if __name__ == "__main__":
     required_columns = [args.key] + args.columns
 
     try:
-        source_rows = read_table(args.source, required_columns)
-        target_rows = read_table(args.target, required_columns)
+        source_rows = read_table(
+            args.source,
+            required_columns,
+            sheet_name=args.source_sheet,
+        )
+        target_rows = read_table(
+            args.target,
+            required_columns,
+            sheet_name=args.target_sheet,
+        )
 
         results = reconcile(
             source_rows,
