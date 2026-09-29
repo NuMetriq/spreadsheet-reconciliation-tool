@@ -1,6 +1,6 @@
 # Spreadsheet Reconciliation Tool
 
-A Python command-line tool for comparing two CSV files by a shared record ID.
+A Python command-line tool for comparing CSV and XLSX files by a shared record ID.
 
 Identify matching records, changed fields, and records present in only one file. Export the results to a CSV report and view record counts in the terminal.
 
@@ -15,12 +15,12 @@ Identify matching records, changed fields, and records present in only one file.
 - Validate required headers, duplicate headers, row structure, and record IDs.
 - Display readable errors for expected file and validation problems.
 
-Currently supports CSV files. Native Excel workbook support is planned.
+Supports CSV-to-CSV, XLSX-to-XLSX, and mixed CSV-to-XLSX comparisons. Reports are exported as CSV.
 
 ## Requirements
 
 - Python 3.11 or newer
-- No third-party Python packages required
+- openpyxl 3.1.5, installed using requirements.txt
 
 ## Setup
 
@@ -36,6 +36,12 @@ Create and activate a virtual environment on Windows PowerShell:
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
 ```
 
 Run the following commands from the repository's top folder.
@@ -71,8 +77,8 @@ python src/reconcile.py --help
 
 | Argument | Purpose |
 |---|---|
-| `--source` | Source CSV path; required |
-| `--target` | Target CSV path; required |
+| `--source` | Source CSV or XLSX path; required |
+| `--target` | Target CSV or XLSX path; required |
 | `--key` | Unique record ID column; required |
 | `--columns` | One or more columns to compare; required |
 | `--numeric-columns` | Optional columns to compare as decimal numbers |
@@ -105,10 +111,15 @@ The terminal summary counts unique records per status, so a record with several 
 - Numeric comparison uses exact equality, with no tolerance or rounding.
 - Blank values, currency symbols, thousands separators, and nonfinite values are rejected when parsed as numbers.
 - Numeric values are currently parsed only for records whose IDs appear in both files.
-- Files must use UTF-8 encoding; a UTF-8 byte-order marker is supported.
+- CSV files must use UTF-8 encoding; a UTF-8 byte-order marker is supported.
 - Both input files are loaded into memory.
 - An existing report at the output path is replaced on a successful run.
 - A rejected run may leave a report from an earlier run in place.
+- XLSX input reads the first worksheet and requires nonblank, unique text headers in row 1.
+- Completely blank Excel rows are skipped; blank cells become empty strings.
+- Formula cells and Excel error cells are rejected.
+- Excel values are read without their display formatting. Store IDs as text when leading zeros matter.
+- Legacy `.xls` files are not supported.
 
 ## Tests
 
@@ -120,7 +131,7 @@ Tests cover CSV validation, record indexing, field comparison, decimal parsing, 
 
 ## Planned improvements
 
-- Native Excel workbook support
+- Selectable Excel worksheets
 - Configurable numeric tolerances
 - A simple user interface
 

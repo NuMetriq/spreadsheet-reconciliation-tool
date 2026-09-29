@@ -1,12 +1,15 @@
 import tempfile
 import unittest
 from pathlib import Path
+from openpyxl import Workbook
 
 from src.reconcile import (
     compare_rows,
     index_rows,
     parse_decimal,
     read_csv,
+    read_xlsx,
+    read_table,
     reconcile,
     summarize_results,
     write_report,
@@ -361,3 +364,145 @@ class TestWriteReport(unittest.TestCase):
         )
 
         self.assertEqual(loaded_rows, [])
+
+
+class TestReadXlsx(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.xlsx_path = Path(self.temp_dir.name) / "input.xlsx"
+
+    def test_reads_text_numbers_and_blank_cells(self):
+        workbook = Workbook()
+        sheet = workbook.active
+
+        sheet.append(["id", "customer", "amount"])
+        sheet.append(["001", "Acme Supply", 150])
+        sheet.append(["002", None, 275.5])
+
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        result = read_xlsx(
+            self.xlsx_path,
+            required_columns=["id", "customer", "amount"],
+        )
+
+        self.assertEqual(result, [
+            {
+                "id": "001",
+                "customer": "Acme Supply",
+                "amount": "150",
+            },
+            {
+                "id": "002",
+                "customer": "",
+                "amount": "275.5",
+            },
+        ])
+
+    def test_rejects_missing_required_column(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "customer"])
+
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        with self.assertRaisesRegex(
+            ValueError, "missing required columns: amount"
+        ):
+            read_xlsx(self.xlsx_path, ["id", "amount"])
+
+    def test_rejects_formula_cells(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "amount"])
+        sheet.append(["A", "=10+5"])
+
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "worksheet row 2 contains a formula or Excel error",
+        ):
+            read_xlsx(self.xlsx_path, ["id", "amount"])
+
+    def test_skips_completely_blank_rows(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "amount"])
+        sheet.append(["A", 10])
+        sheet.append([None, None])
+        sheet.append(["B", 20])
+
+        workbook.save(self.xlsx_path)
+        workbook.close()
+
+        result = read_xlsx(self.xlsx_path, ["id", "amount"])
+
+        self.assertEqual(result, [
+            {"id": "A", "amount": "10"},
+            {"id": "B", "amount": "20"},
+        ])
+
+
+class TestReadTable(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.folder = Path(self.temp_dir.name)
+
+    def test_reconciles_csv_against_xlsx(self):
+        source_path = self.folder / "source.csv"
+        target_path = self.folder / "target.XLSX"
+
+        source_path.write_text(
+            "id,amount\nA,150.00\nB,20.00\n",
+            encoding="utf-8",
+        )
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "amount"])
+        sheet.append(["B", 25])
+        sheet.append(["A", 150])
+        workbook.save(target_path)
+        workbook.close()
+
+        source_rows = read_table(source_path, ["id", "amount"])
+        target_rows = read_table(target_path, ["id", "amount"])
+
+        results = reconcile(
+            source_rows,
+            target_rows,
+            key_column="id",
+            comparison_columns=["amount"],
+            numeric_columns=["amount"],
+        )
+
+        self.assertEqual(results, [
+            {
+                "record_id": "A",
+                "status": "matched",
+                "column": "",
+                "source_value": "",
+                "target_value": "",
+            },
+            {
+                "record_id": "B",
+                "status": "changed",
+                "column": "amount",
+                "source_value": "20.00",
+                "target_value": "25",
+            },
+        ])
+
+    def test_rejects_unsupported_extension(self):
+        file_path = self.folder / "input.txt"
+
+        with self.assertRaisesRegex(
+            ValueError, "unsupported file extension"
+        ):
+            read_table(file_path)

@@ -2,7 +2,7 @@ import csv
 import argparse
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
-
+from openpyxl import load_workbook
 
 def read_csv(
     file_path: Path,
@@ -47,6 +47,103 @@ def read_csv(
             rows.append(row)
 
         return rows
+
+
+def read_xlsx(
+    file_path: Path,
+    required_columns: list[str] | None = None,
+) -> list[dict[str, str]]:
+    workbook = load_workbook(
+        file_path,
+        read_only=True,
+        data_only=False,
+    )
+
+    try:
+        sheet = workbook.worksheets[0]
+        worksheet_rows = sheet.iter_rows()
+        header_cells = next(worksheet_rows, ())
+        headers = [cell.value for cell in header_cells]
+
+        if not headers:
+            raise ValueError(f"{file_path}: missing header row")
+
+        if any(
+            not isinstance(header, str) or not header.strip()
+            for header in headers
+        ):
+            raise ValueError(
+                f"{file_path}: column names must be nonblank text"
+            )
+
+        if any(cell.data_type in ("f", "e") for cell in header_cells):
+            raise ValueError(
+                f"{file_path}: headers cannot contain formulas or errors"
+            )
+
+        if len(headers) != len(set(headers)):
+            raise ValueError(f"{file_path}: duplicate column names")
+
+        missing_columns = [
+            column
+            for column in (required_columns or [])
+            if column not in headers
+        ]
+
+        if missing_columns:
+            names = ", ".join(missing_columns)
+            raise ValueError(
+                f"{file_path}: missing required columns: {names}"
+            )
+
+        rows = []
+
+        for row_number, cells in enumerate(worksheet_rows, start=2):
+            if all(cell.value is None for cell in cells):
+                continue
+
+            values = []
+
+            for cell in cells:
+                if cell.data_type in ("f", "e"):
+                    raise ValueError(
+                        f"{file_path}: worksheet row {row_number} "
+                        "contains a formula or Excel error"
+                    )
+
+                value = "" if cell.value is None else str(cell.value)
+                values.append(value)
+
+            if len(values) != len(headers):
+                raise ValueError(
+                    f"{file_path}: worksheet row {row_number} "
+                    "does not match the header width"
+                )
+
+            rows.append(dict(zip(headers, values)))
+
+        return rows
+
+    finally:
+        workbook.close()
+
+
+def read_table(
+    file_path: Path,
+    required_columns: list[str] | None = None,
+) -> list[dict[str, str]]:
+    extension = file_path.suffix.lower()
+
+    if extension == ".csv":
+        return read_csv(file_path, required_columns)
+
+    if extension == ".xlsx":
+        return read_xlsx(file_path, required_columns)
+
+    raise ValueError(
+        f"{file_path}: unsupported file extension '{extension}'. "
+        "Use .csv or .xlsx."
+    )
 
 
 def parse_decimal(value: str) -> Decimal:
@@ -233,7 +330,9 @@ def summarize_results(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Compare two CSV files and export a reconciliation report."
+        description=(
+            "Compare CSV or XLSX files and export a CSV reconciliation report."
+        )
     )
 
     parser.add_argument("--source", type=Path, required=True)
@@ -260,8 +359,8 @@ if __name__ == "__main__":
     required_columns = [args.key] + args.columns
 
     try:
-        source_rows = read_csv(args.source, required_columns)
-        target_rows = read_csv(args.target, required_columns)
+        source_rows = read_table(args.source, required_columns)
+        target_rows = read_table(args.target, required_columns)
 
         results = reconcile(
             source_rows,
