@@ -9,6 +9,7 @@ from src.reconcile import (
     read_csv,
     reconcile,
     summarize_results,
+    write_report,
 )
 
 
@@ -319,3 +320,44 @@ class TestSummarizeResults(unittest.TestCase):
             "source_only": 0,
             "target_only": 0,
         })
+
+
+class TestWriteReport(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.output_path = (
+            Path(self.temp_dir.name) / "reports" / "result.csv"
+        )
+
+    def test_preserves_special_characters_in_report(self):
+        results = [
+            {
+                "record_id": "A",
+                "status": "changed",
+                "column": "customer",
+                "source_value": 'Acme, "North"',
+                "target_value": "Café Supply",
+            },
+        ]
+
+        write_report(results, self.output_path)
+        loaded_rows = read_csv(self.output_path)
+
+        self.assertEqual(loaded_rows, results)
+
+    def test_empty_report_still_has_headers(self):
+        write_report([], self.output_path)
+
+        loaded_rows = read_csv(
+            self.output_path,
+            required_columns=[
+                "record_id",
+                "status",
+                "column",
+                "source_value",
+                "target_value",
+            ],
+        )
+
+        self.assertEqual(loaded_rows, [])
