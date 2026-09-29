@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import subprocess
+import sys
 from pathlib import Path
 from openpyxl import Workbook
 
@@ -585,3 +587,76 @@ class TestReadTable(unittest.TestCase):
                 required_columns=["id", "amount"],
                 sheet_name="Invoices",
             )
+
+
+class TestCommandLine(unittest.TestCase):
+    def test_reconciles_csv_and_selected_excel_sheet(self):
+        project_root = Path(__file__).resolve().parent.parent
+        script_path = project_root / "src" / "reconcile.py"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            source_path = folder / "source.csv"
+            target_path = folder / "target.xlsx"
+            output_path = folder / "reports" / "result.csv"
+
+            source_path.write_text(
+                "id,amount\nA,150.00\nB,20.00\n",
+                encoding="utf-8",
+            )
+
+            workbook = Workbook()
+            workbook.active.title = "Overview"
+
+            sheet = workbook.create_sheet("Invoice Data")
+            sheet.append(["id", "amount"])
+            sheet.append(["B", 25])
+            sheet.append(["A", 150])
+
+            workbook.save(target_path)
+            workbook.close()
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_path),
+                    "--source", str(source_path),
+                    "--target", str(target_path),
+                    "--target-sheet", "Invoice Data",
+                    "--key", "id",
+                    "--columns", "amount",
+                    "--numeric-columns", "amount",
+                    "--output", str(output_path),
+                ],
+                cwd=folder,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(
+                completed.returncode,
+                0,
+                msg=completed.stderr,
+            )
+            self.assertIn("Matched records: 1", completed.stdout)
+            self.assertIn("Changed records: 1", completed.stdout)
+            self.assertIn("Source-only records: 0", completed.stdout)
+            self.assertIn("Target-only records: 0", completed.stdout)
+
+            self.assertEqual(read_csv(output_path), [
+                {
+                    "record_id": "A",
+                    "status": "matched",
+                    "column": "",
+                    "source_value": "",
+                    "target_value": "",
+                },
+                {
+                    "record_id": "B",
+                    "status": "changed",
+                    "column": "amount",
+                    "source_value": "20.00",
+                    "target_value": "25",
+                },
+            ])
