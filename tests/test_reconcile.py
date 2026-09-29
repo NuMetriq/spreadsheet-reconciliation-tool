@@ -8,6 +8,7 @@ from src.reconcile import (
     parse_decimal,
     read_csv,
     reconcile,
+    summarize_results,
 )
 
 
@@ -280,3 +281,41 @@ class TestParseDecimal(unittest.TestCase):
                     ValueError, "must be finite"
                 ):
                     parse_decimal(value)
+
+
+class TestSummarizeResults(unittest.TestCase):
+    def test_counts_changed_record_once_for_multiple_differences(self):
+        source = [
+            {"id": "A", "customer": "Acme", "amount": "10.00"},
+        ]
+        target = [
+            {"id": "A", "customer": "Acme Supply", "amount": "15.00"},
+        ]
+
+        results = reconcile(
+            source,
+            target,
+            key_column="id",
+            comparison_columns=["customer", "amount"],
+        )
+
+        self.assertEqual(len(results), 2)
+
+        summary = summarize_results(results)
+
+        self.assertEqual(summary, {
+            "matched": 0,
+            "changed": 1,
+            "source_only": 0,
+            "target_only": 0,
+        })
+
+    def test_empty_results_have_zero_counts(self):
+        summary = summarize_results([])
+
+        self.assertEqual(summary, {
+            "matched": 0,
+            "changed": 0,
+            "source_only": 0,
+            "target_only": 0,
+        })

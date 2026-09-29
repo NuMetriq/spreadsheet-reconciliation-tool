@@ -210,6 +210,27 @@ def write_report(
         writer.writerows(results)
 
 
+def summarize_results(
+    results: list[dict[str, str]],
+) -> dict[str, int]:
+    record_ids_by_status: dict[str, set[str]] = {
+        "matched": set(),
+        "changed": set(),
+        "source_only": set(),
+        "target_only": set(),
+    }
+
+    for result in results:
+        status = result["status"]
+        record_id = result["record_id"]
+        record_ids_by_status[status].add(record_id)
+
+    return {
+        status: len(record_ids)
+        for status, record_ids in record_ids_by_status.items()
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Compare two CSV files and export a reconciliation report."
@@ -255,4 +276,10 @@ if __name__ == "__main__":
     except (ValueError, OSError, csv.Error) as error:
         parser.exit(status=1, message=f"Error: {error}\n")
 
-    print(f"Report saved to: {args.output}")
+    summary = summarize_results(results)
+
+    print(f"Matched records: {summary['matched']}")
+    print(f"Changed records: {summary['changed']}")
+    print(f"Source-only records: {summary['source_only']}")
+    print(f"Target-only records: {summary['target_only']}")
+    print(f"\nReport saved to: {args.output}")
