@@ -1,9 +1,11 @@
 import csv
 import tempfile
+from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile
 
 import streamlit as st
+from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from src.reconcile import (
@@ -15,14 +17,37 @@ from src.reconcile import (
 )
 
 
-def read_uploaded_table(uploaded_file):
+def get_uploaded_sheet_names(uploaded_file) -> list[str]:
+    if Path(uploaded_file.name).suffix.lower() != ".xlsx":
+        return []
+
+    workbook = load_workbook(
+        BytesIO(uploaded_file.getvalue()),
+        read_only=True,
+    )
+
+    try:
+        names = [sheet.title for sheet in workbook.worksheets]
+
+        if not names:
+            raise ValueError("The workbook contains no data worksheets.")
+
+        return names
+    finally:
+        workbook.close()
+
+
+def read_uploaded_table(
+    uploaded_file,
+    sheet_name: str | None = None,
+):
     extension = Path(uploaded_file.name).suffix.lower()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         file_path = Path(temp_dir) / f"uploaded{extension}"
         file_path.write_bytes(uploaded_file.getvalue())
 
-        return read_table(file_path)
+        return read_table(file_path, sheet_name=sheet_name)
 
 
 def create_report_bytes(results: list[dict[str, str]]) -> bytes:
@@ -65,8 +90,31 @@ if source_file is None or target_file is None:
     st.stop()
 
 try:
-    source_rows = read_uploaded_table(source_file)
-    target_rows = read_uploaded_table(target_file)
+    source_sheet_names = get_uploaded_sheet_names(source_file)
+    target_sheet_names = get_uploaded_sheet_names(target_file)
+
+    source_sheet = None
+    target_sheet = None
+
+    source_sheet_column, target_sheet_column = st.columns(2)
+
+    with source_sheet_column:
+        if source_sheet_names:
+            source_sheet = st.selectbox(
+                "Source worksheet",
+                options=source_sheet_names,
+            )
+
+    with target_sheet_column:
+        if target_sheet_names:
+            target_sheet = st.selectbox(
+                "Target worksheet",
+                options=target_sheet_names,
+            )
+
+    source_rows = read_uploaded_table(source_file, source_sheet)
+    target_rows = read_uploaded_table(target_file, target_sheet)
+
 except (ValueError, OSError, csv.Error, BadZipFile, InvalidFileException) as error:
     st.error(f"Could not read the files: {error}")
     st.stop()
@@ -176,7 +224,7 @@ if st.button("Reconcile", type="primary"):
         "rules. Changed records have one row per differing field."
     )
     st.dataframe(results, hide_index=True)
-    
+
     try:
         report_bytes = create_report_bytes(results)
     except (ValueError, OSError, csv.Error) as error:

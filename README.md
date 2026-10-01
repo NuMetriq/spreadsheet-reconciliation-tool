@@ -58,18 +58,19 @@ python -m streamlit run app.py --server.address localhost
 Open the Local URL printed in the terminal.
 
 1. Upload a source file and a target file (`.csv` or `.xlsx`).
-2. Review the previews.
-3. Select the record ID column and columns to compare.
-4. Optionally select numeric columns and enter a tolerance.
-5. Click **Reconcile**.
-6. Review the summary and download the CSV report.
+2. For XLSX uploads, choose the worksheet to compare.
+3. Review the previews.
+4. Select the record ID column and columns to compare.
+5. Optionally select numeric columns and enter a tolerance.
+6. Click **Reconcile**.
+7. Review the summary and download the CSV report.
 
 Changing files or settings clears the displayed results until you click
 **Reconcile** again.
 
-The interface currently requires at least one data record in each file
-and reads the first worksheet of XLSX files. The CLI also supports
-header-only files and worksheet selection.
+The interface currently requires at least one data record in each file.
+XLSX uploads provide separate source and target worksheet selectors,
+defaulting to the first worksheet. The CLI also supports header-only files.
 
 Stop the app with **Ctrl+C** in its terminal.
 
@@ -173,7 +174,7 @@ Tests cover CSV validation, record indexing, field comparison, decimal parsing, 
 
 ## Planned improvements
 
-- Worksheet selection and header-only file support in the browser interface
+- Header-only file support in the browser interface
 
 ## License
 
