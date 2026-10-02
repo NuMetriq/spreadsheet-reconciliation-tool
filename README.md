@@ -4,6 +4,20 @@ A Python command-line tool for comparing CSV and XLSX files by a shared record I
 
 Identify matching records, changed fields, and records present in only one file. Export the results to a CSV report and view record counts in the terminal.
 
+## Why this tool?
+
+Comparing exports from two business systems can require manually checking
+invoice IDs, amounts, and missing records. This tool matches records by ID
+and produces a report of field-level differences and records present in
+only one file.
+
+For example, the sample invoice comparison identifies one matching invoice,
+one changed amount, and one invoice unique to each file.
+
+## Interface demo
+
+![Spreadsheet reconciliation interface showing sample invoice differences](docs/images/reconciliation-demo.png)
+
 ## Current features
 
 - Match records by a configurable key column, regardless of row order.
